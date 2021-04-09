@@ -1,0 +1,153 @@
+Transform: AWS::Serverless-2016-10-31
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Template of Active-Standby ALB by PIOLINK
+Parameters:
+  LoadBalancerName:
+    Type: String
+    Default: ''
+    Description: Enter your existing load balancer name. e.g app/lbname/d665cae1604417d
+  LBListenerArn:
+    Type: String
+    Default: ''
+    Description: Enter your existing LB Listerner ARN. e.g.arn:aws:elasticloadbalancing:ap-northeast-2:1111:listener/app/lb/2222222/333333
+  TargetGroupARNActive:
+    Type: String
+    Default: ''
+    Description: Enter your existing ACTIVE target group ARN. e.g.arn:aws:elasticloadbalancing:us-east-1:1111111111:targetgroup/my-tg/83b692961bdc9a81
+  TargetGroupARNBackup:
+    Type: String
+    Default: ''
+    Description: Enter your existing Backup target group ARN. e.g.arn:aws:elasticloadbalancing:us-east-1:1111111111:targetgroup/my-tg/83b692961bdc9a81
+  CloudWatchAlarmName:
+    Type: String
+    Default: ''
+    Description: Enter a new CloudWatch Alarm name that you want to create for monitoring LB target 
+  Email:
+    Type: String
+    Description: Enter a Email address to be notified when the CloudWatch alarm is triggered
+  Region:
+    Type: String
+    AllowedValues: [ ap-northeast-2 ]
+    Description: Please specify the region(Currently only ap-northeast-2 supported) 
+Resources:
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref 'Email'
+          Protocol: email
+  AlarmTriggerTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !GetAtt 'LambdaFunction.Arn'
+          Protocol: lambda
+  LBNotifyActiveALive:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Join [ '', [ !Ref 'CloudWatchAlarmName', '-alive' ] ]
+      AlarmDescription: Alarms when ACTIVE LB target is alive 
+      AlarmActions:
+        - !Ref 'AlarmTriggerTopic'
+      MetricName: HealthyHostCount
+      Namespace: AWS/ApplicationELB
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 3
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !Ref 'LoadBalancerName'
+        - Name: TargetGroup
+          Value: !Select [ '5', !Split [':', !Ref 'TargetGroupARNActive']] 
+      EvaluationPeriods: 3
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+  LBNotifyActiveDead:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Join [ '', [ !Ref 'CloudWatchAlarmName', '-dead' ] ]
+      AlarmDescription: Alarms when ACTIVE LB target is dead
+      AlarmActions:
+        - !Ref 'AlarmTriggerTopic'
+      MetricName: HealthyHostCount
+      Namespace: AWS/ApplicationELB
+      ComparisonOperator: LessThanThreshold
+      DatapointsToAlarm: 1
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !Ref 'LoadBalancerName'
+        - Name: TargetGroup
+          Value: !Select [ '5', !Split [':', !Ref 'TargetGroupARNActive']] 
+      EvaluationPeriods: 1
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda/ 
+
+      Description: Handle the state change event of ALB Active Standby 
+      Handler: alb_active_standby.lambda_handler
+      Role: !GetAtt 'LambdaIAMRole.Arn'
+      VpcConfig:
+        SecurityGroupIds: []
+        SubnetIds: [] 
+      Runtime: python2.7
+      Timeout: 30
+      Environment:
+        Variables:
+          SNS_TOPIC: !Ref 'AlarmNotificationTopic'
+          TARGETGROUP_ARN_ACTIVE: !Ref 'TargetGroupARNActive'
+          TARGETGROUP_ARN_BACKUP: !Ref 'TargetGroupARNBackup'
+          ALARM_NAME: !Ref 'CloudWatchAlarmName'
+          LB_LISTENER_ARN: !Ref 'LBListenerArn'
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt 'LambdaFunction.Arn'
+      Principal: sns.amazonaws.com
+      Action: lambda:InvokeFunction
+      SourceArn: !Ref 'AlarmTriggerTopic'
+  LambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: ALBActiveStandby
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaLogging
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Sid: SNS
+                Action:
+                  - sns:Publish
+                Effect: Allow
+                Resource: '*'
+              - Sid: ELB
+                Action:
+                  - elasticloadbalancing:Describe*
+                  - elasticloadbalancing:ModifyListener
+                Effect: Allow
+                Resource: '*'
+              - Sid: EC2
+                Action:
+                  - ec2:Describe*
+                  - ec2:CreateNetworkInterface
+                  - ec2:AttachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Effect: Allow
+                Resource: '*'
