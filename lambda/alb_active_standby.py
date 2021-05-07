@@ -4,9 +4,6 @@ import json
 import os
 import logging
 import sys
-import socket
-import requests
-import ssl
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
@@ -32,7 +29,6 @@ def lambda_handler(event, context):
 	
 	global sns_client
 	global elbv2_client
-	global ec2_client
 
 	try:
 		sns_client = boto3.client('sns')
@@ -43,12 +39,6 @@ def lambda_handler(event, context):
 		elbv2_client = boto3.client('elbv2')
 	except ClientError as e:
 		logger.error(e.response['Error']['Message'])
-
-	try:
-		ec2_client = boto3.client('ec2')
-	except ClientError as e:
-		logger.error(e.response['Error']['Message'])
-
 
 	if not "AlarmName" in message:
 		logger.error('No Alarmname in event message')
@@ -81,14 +71,14 @@ def lambda_handler(event, context):
 				
 		
 	change_weight_in_lb_rule(elb_name, is_active_dead)
-	send_sns(elb_name, region, timestamp, lbtype, tg_arn_active)
+	send_sns(elb_name, region, timestamp, alarm_name)
 	
 	
-def send_sns(elb_name, region, timestamp, tg_arn):
+def send_sns(elb_name, region, timestamp, alarm_name):
 	"""
 	Send notification to SNS topic subscribers of unhealthy instances/targets
 	"""
-	message = "Timestamp: {} \nRegion: {} \nELB: {} \nTargetGroupARN: {}".format(timestamp, region, elb_name, tg_arn)
+	message = "Timestamp: {} \nRegion: {} \nELB: {} \nAlarm Name: {}".format(timestamp, region, elb_name, alarm_name)
 	
 	try:
 		sns_client.publish(
@@ -124,7 +114,7 @@ def change_weight_in_lb_rule(elb_name, is_active_dead):
 			}])
 		 
 	except ClientError as e:
-		logger.error(e.response['Error']['Message'])
+		logger.error(e.response['Error']['Message'], response)
 	
-	logger.info('Set target weight: {}-{}, {}-{}'.format(
+	logger.info('Set target weight: {} => {}, {} => {}'.format(
 		tg_arn_active, target_weight_active, tg_arn_backup, target_weight_backup))

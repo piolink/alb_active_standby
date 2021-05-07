@@ -9,15 +9,15 @@ Parameters:
   LBListenerArn:
     Type: String
     Default: ''
-    Description: Enter your existing LB Listerner ARN. e.g.arn:aws:elasticloadbalancing:ap-northeast-2:1111:listener/app/lb/2222222/333333
+    Description: Enter your existing LB Listerner ARN. e.g.arn:aws:elasticloadbalancing:ap-northeast-2:1111:listener/app/lb/22222/333333
   TargetGroupARNActive:
     Type: String
     Default: ''
-    Description: Enter your existing ACTIVE target group ARN. e.g.arn:aws:elasticloadbalancing:us-east-1:1111111111:targetgroup/my-tg/83b692961bdc9a81
+    Description: Enter your existing ACTIVE target group ARN. e.g.arn:aws:elasticloadbalancing:ap-northeast-2:1111:targetgroup/my-tg/aaaaa
   TargetGroupARNBackup:
     Type: String
     Default: ''
-    Description: Enter your existing Backup target group ARN. e.g.arn:aws:elasticloadbalancing:us-east-1:1111111111:targetgroup/my-tg/83b692961bdc9a81
+    Description: Enter your existing Backup target group ARN. e.g.arn:aws:elasticloadbalancing:ap-northeast-2:1111:targetgroup/my-tg/bbbbb
   CloudWatchAlarmName:
     Type: String
     Default: ''
@@ -25,10 +25,6 @@ Parameters:
   Email:
     Type: String
     Description: Enter a Email address to be notified when the CloudWatch alarm is triggered
-  Region:
-    Type: String
-    AllowedValues: [ ap-northeast-2 ]
-    Description: Please specify the region(Currently only ap-northeast-2 supported) 
 Resources:
   AlarmNotificationTopic:
     Type: AWS::SNS::Topic
@@ -85,16 +81,19 @@ Resources:
   LambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: lambda/ 
-
       Description: Handle the state change event of ALB Active Standby 
+      CodeUri: lambda/
       Handler: alb_active_standby.lambda_handler
-      Role: !GetAtt 'LambdaIAMRole.Arn'
       VpcConfig:
         SecurityGroupIds: []
         SubnetIds: [] 
-      Runtime: python2.7
+      Runtime: python3.8
       Timeout: 30
+      Events:
+        SNSAlarmTrigger:
+          Type: SNS
+          Properties:
+            Topic: !Ref 'AlarmTriggerTopic'
       Environment:
         Variables:
           SNS_TOPIC: !Ref 'AlarmNotificationTopic'
@@ -102,52 +101,23 @@ Resources:
           TARGETGROUP_ARN_BACKUP: !Ref 'TargetGroupARNBackup'
           ALARM_NAME: !Ref 'CloudWatchAlarmName'
           LB_LISTENER_ARN: !Ref 'LBListenerArn'
-  LambdaInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !GetAtt 'LambdaFunction.Arn'
-      Principal: sns.amazonaws.com
-      Action: lambda:InvokeFunction
-      SourceArn: !Ref 'AlarmTriggerTopic'
-  LambdaIAMRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Path: /
       Policies:
-        - PolicyName: ALBActiveStandby
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: LambdaLogging
-                Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: '*'
-              - Sid: SNS
-                Action:
-                  - sns:Publish
-                Effect: Allow
-                Resource: '*'
-              - Sid: ELB
-                Action:
-                  - elasticloadbalancing:Describe*
-                  - elasticloadbalancing:ModifyListener
-                Effect: Allow
-                Resource: '*'
-              - Sid: EC2
-                Action:
-                  - ec2:Describe*
-                  - ec2:CreateNetworkInterface
-                  - ec2:AttachNetworkInterface
-                  - ec2:DeleteNetworkInterface
-                Effect: Allow
-                Resource: '*'
+        - Statement:
+          - Sid: LambdaLogging
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+          - Sid: SNS
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: '*'
+          - Sid: ELB
+            Effect: Allow
+            Action:
+              - elasticloadbalancing:Describe*
+              - elasticloadbalancing:ModifyListener
+            Resource: '*'
