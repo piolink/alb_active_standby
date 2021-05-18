@@ -1,6 +1,22 @@
 Transform: AWS::Serverless-2016-10-31
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Template of Active-Standby ALB by PIOLINK
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: alb-active-standby
+    Description: |
+      AWS serverless implemention of ALB active standby which is composed of
+      - CloudWatch Alarm for checking healty LB target host
+      - SNS for notification of CloudWatch alarm trigger
+      - Lambda for modifiying the weight of LB rule
+    Author: PIOLINK
+    SpdxLicenseId: MIT
+    LicenseUrl: LICENSE.txt
+    ReadmeUrl: README.md
+    Labels: [alb, ha, active_standby]
+    HomePageUrl: https://github.com/piolink/alb_active_standby
+    SemanticVersion: 1.0.4
+    SourceCodeUrl: https://github.com/piolink/alb_active_standby
 Parameters:
   LoadBalancerName:
     Type: String
