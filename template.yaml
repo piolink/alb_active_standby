@@ -15,7 +15,7 @@ Metadata:
     ReadmeUrl: README.md
     Labels: [alb, ha, active_standby]
     HomePageUrl: https://github.com/piolink/alb_active_standby
-    SemanticVersion: 1.0.4
+    SemanticVersion: 1.0.5
     SourceCodeUrl: https://github.com/piolink/alb_active_standby
 Parameters:
   LoadBalancerName:

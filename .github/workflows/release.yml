@@ -1,0 +1,86 @@
+name: Release Workflow
+
+env:
+  STACK_NAME: alb-active-standby
+  AWS_REGION: ap-northeast-2
+on:
+  push:
+    branches: [main, release]
+  workflow_dispatch:
+    branches: [main, release]
+
+jobs:
+  sam-prepare:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Pip Dependencies for CI
+        run: |
+          pip install flake8
+      - name: Lint 'lambda' python code directory with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 lambda --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          flake8 lambda --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      - name: Configure AWS credentials
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: SAM Validate
+        run: |
+          sam validate
+  sam-publish:
+    needs: [sam-prepare]
+    runs-on: ubuntu-20.04
+    if: github.ref == 'refs/heads/release'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Configure AWS credentials
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: SAM Build
+        run: |
+          sam build
+      - name: Package SAM application
+        run: |
+          sam package --output-template-file .aws-sam/build/packaged.yaml --s3-bucket ${{ secrets.AWS_S3_BUCKET }} --s3-prefix ${STACK_NAME} 
+      - name: Publish to Serverless Appliation Repository
+        run: |
+          sam publish --template .aws-sam/build/packaged.yaml --region us-east-1
+  sam-deploy:
+    needs: [sam-prepare]
+    runs-on: ubuntu-20.04
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Configure AWS credentials
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Prepare deploy config file (samconfig.toml)
+        uses: cuchi/jinja2-action@v1.2.0
+        with:
+          template: samconfig.toml.j2
+          output_file: samconfig.toml
+          strict: true
+          variables: |
+            stack_name=${{ env.STACK_NAME }}
+            s3_bucket=${{ secrets.AWS_S3_BUCKET }}
+            s3_prefix=${{ env.STACK_NAME }}
+            region=${{ env.AWS_REGION }}
+      - name: Deploy to AWS
+        run: |
+          sam deploy --no-fail-on-empty-changeset  --parameter-overrides "${SAM_PARAMETERS}"
+        env:
+          SAM_PARAMETERS: ${{ secrets.AWS_SAM_PARAMETERS }}
